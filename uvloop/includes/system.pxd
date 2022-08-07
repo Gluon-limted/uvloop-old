@@ -73,6 +73,7 @@ cdef extern from "includes/compat.h" nogil:
 
     cdef int PLATFORM_IS_APPLE
     cdef int PLATFORM_IS_LINUX
+    cdef int PLATFORM_IS_WINDOWS
 
     struct epoll_event:
         # We don't use the fields
@@ -81,7 +82,13 @@ cdef extern from "includes/compat.h" nogil:
     int EPOLL_CTL_DEL
     int epoll_ctl(int epfd, int op, int fd, epoll_event *event)
     object MakeUnixSockPyAddr(sockaddr_un *addr)
+    setsockopt_reuseport(int fd)
+    is_sigchild(int sig)
 
+    int GetFileHandle(int fd)
+    int GetStdIn()
+    int GetStdOut()
+    int GetStdErr()
 
 cdef extern from "includes/fork_handler.h":
 

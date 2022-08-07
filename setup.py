@@ -4,8 +4,8 @@ vi = sys.version_info
 if vi < (3, 7):
     raise RuntimeError('uvloop requires Python 3.7 or greater')
 
-if sys.platform in ('win32', 'cygwin', 'cli'):
-    raise RuntimeError('uvloop does not support Windows at the moment')
+if sys.platform in ('cygwin', ):
+    raise RuntimeError('uvloop does not support Cygnus Windows at the moment')
 
 import os
 import os.path
@@ -199,7 +199,16 @@ class uvloop_build_ext(build_ext):
 
         # Make sure configure and friends are present in case
         # we are building from a git checkout.
-        _libuv_autogen(env)
+        if sys.platform in ('win32', 'cli') :
+            print(r'''
+        "C:\Program Files\Microsoft Visual Studio\2022\Professional\VC\Auxiliary\Build\vcvarsall.bat" amd64
+        cd vendor\libuv
+        mkdir build
+        cd build
+        cmake .. -G "Visual Studio 17 2022 Win64"
+''')
+        else :
+            _libuv_autogen(env)
 
         # Copy the libuv tree to build/ so that its build
         # products don't pollute sdist accidentally.
@@ -237,14 +246,18 @@ class uvloop_build_ext(build_ext):
                 # Support macports on Mac OS X.
                 self.compiler.add_include_dir('/opt/local/include')
         else:
-            libuv_lib = os.path.join(LIBUV_BUILD_DIR, '.libs', 'libuv.a')
-            if not os.path.exists(libuv_lib):
-                self.build_libuv()
+            if sys.platform in ('win32', 'cli')  :
+                libuv_lib = os.path.join(LIBUV_DIR, 'build', 'libuv-{}'.format(MACHINE), 'uv.lib')
+                self.compiler.add_include_dir(os.path.join(LIBUV_DIR, 'include'))
+            else :
+                libuv_lib = os.path.join(LIBUV_BUILD_DIR, '.libs', 'libuv.a')
+                self.compiler.add_include_dir(os.path.join(LIBUV_DIR, 'include'))
+                if not os.path.exists(libuv_lib):
+                    self.build_libuv()
             if not os.path.exists(libuv_lib):
                 raise RuntimeError('failed to build libuv')
 
             self.extensions[-1].extra_objects.extend([libuv_lib])
-            self.compiler.add_include_dir(os.path.join(LIBUV_DIR, 'include'))
 
         if sys.platform.startswith('linux'):
             self.compiler.add_library('rt')
@@ -253,7 +266,10 @@ class uvloop_build_ext(build_ext):
         elif sys.platform.startswith('sunos'):
             self.compiler.add_library('kstat')
 
-        self.compiler.add_library('pthread')
+        if sys.platform in ('win32', 'cli'):
+            self.compiler.add_library('ws2_32')
+        else:
+            self.compiler.add_library('pthread')
 
         super().build_extensions()
 
@@ -301,7 +317,7 @@ setup(
             sources=[
                 "uvloop/loop.pyx",
             ],
-            extra_compile_args=CFLAGS
+            extra_compile_args=CFLAGS,
         ),
     ],
     classifiers=[

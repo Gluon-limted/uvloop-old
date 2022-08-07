@@ -1,5 +1,4 @@
 import asyncio
-import fcntl
 import logging
 import os
 import random
@@ -28,7 +27,7 @@ class _TestBase:
         self.loop.close()
 
         # operation blocked when the loop is closed
-        f = asyncio.Future()
+        f = self.loop.create_future()
         self.assertRaises(RuntimeError, self.loop.run_forever)
         self.assertRaises(RuntimeError, self.loop.run_until_complete, f)
 
@@ -131,6 +130,7 @@ class _TestBase:
             return self.loop.time() - st
 
         delta = self.loop.run_until_complete(run())
+        delta += 0.01 if sys.platform in ('win32', 'cli') else 0.0
         self.assertTrue(delta > 0.049 and delta < 0.6)
 
     def test_call_later_1(self):
@@ -211,9 +211,9 @@ class _TestBase:
 
         def cb():
             self.loop.stop()
-
+        delta = 0.012 if sys.platform in ('win32', 'cli') else 0.01
         for i in range(8):
-            self.loop.call_later(0.06 + 0.01, cb)  # 0.06999999999999999
+            self.loop.call_later(0.06 + delta, cb)  # 0.06999999999999999
             started = int(round(self.loop.time() * 1000))
             self.loop.run_forever()
             finished = int(round(self.loop.time() * 1000))
@@ -445,7 +445,7 @@ class _TestBase:
 
         # Test call_soon (events.Handle)
         with mock.patch.object(logger, 'error') as log:
-            fut = asyncio.Future()
+            fut = self.loop.create_future()
             self.loop.call_soon(zero_error, fut)
             fut.add_done_callback(lambda fut: self.loop.stop())
             self.loop.run_forever()
@@ -455,7 +455,7 @@ class _TestBase:
 
         # Test call_later (events.TimerHandle)
         with mock.patch.object(logger, 'error') as log:
-            fut = asyncio.Future()
+            fut = self.loop.create_future()
             self.loop.call_later(0.01, zero_error, fut)
             fut.add_done_callback(lambda fut: self.loop.stop())
             self.loop.run_forever()
@@ -763,7 +763,9 @@ class TestBaseUV(_TestBase, UVTestCase):
         self.run_loop_briefly(delay=0.05)
         self.assertFalse(handle.cancelled())
 
+    @unittest.skipIf(sys.platform in ('win32', 'cygwin', 'cli'), 'Hangs')
     def test_loop_std_files_cloexec(self):
+        import fcntl
         # See https://github.com/MagicStack/uvloop/issues/40 for details.
         for fd in {0, 1, 2}:
             flags = fcntl.fcntl(fd, fcntl.F_GETFD)
@@ -914,7 +916,7 @@ class TestPolicy(unittest.TestCase):
                          'No asyncio._get_running_loop')
     def test_get_event_loop_returns_running_loop(self):
         class Policy(asyncio.DefaultEventLoopPolicy):
-            def get_event_loop(self):
+            def get_running_loop(self):
                 raise NotImplementedError
 
         loop = None
@@ -926,7 +928,7 @@ class TestPolicy(unittest.TestCase):
             self.assertIs(asyncio._get_running_loop(), None)
 
             async def func():
-                self.assertIs(asyncio.get_event_loop(), loop)
+                self.assertIs(asyncio.get_running_loop(), loop)
                 self.assertIs(asyncio._get_running_loop(), loop)
 
             loop.run_until_complete(func())

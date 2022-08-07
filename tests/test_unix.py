@@ -10,6 +10,7 @@ import sys
 from uvloop import _testbase as tb
 
 
+@unittest.skipIf(sys.platform not in ('win32', 'cygwin', 'cli'))
 class _TestUnix:
     def test_create_unix_server_1(self):
         CNT = 0           # number of clients that were successful

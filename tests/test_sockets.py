@@ -372,7 +372,8 @@ class TestUVSockets(_TestSockets, tb.UVTestCase):
                 r'File descriptor .* is used by transport')
 
         def test_pseudo(real_sock, pseudo_sock, *, is_dup=False):
-            self.assertIn('AF_UNIX', repr(pseudo_sock))
+            if hasattr(socket, 'AF_UNIX'):
+                self.assertIn('AF_UNIX', repr(pseudo_sock))
 
             self.assertEqual(pseudo_sock.family, real_sock.family)
             self.assertEqual(pseudo_sock.proto, real_sock.proto)

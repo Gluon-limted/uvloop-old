@@ -1,4 +1,17 @@
 
+#ifdef _WIN32
+/* No fork() in windows - so ignore this */
+#define PyOS_BeforeFork() 0
+#define PyOS_AfterFork_Parent() 0
+#define PyOS_AfterFork_Child() 0
+#define pthread_atfork(prepare, parent, child) 0
+#include <winsock2.h>
+#else
+#include <pthread.h>
+#include <sys/socket.h>
+
+#endif
+
 typedef void (*OnForkHandler)();
 
 OnForkHandler __forkHandler = NULL;

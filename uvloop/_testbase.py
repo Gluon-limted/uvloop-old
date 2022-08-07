@@ -13,14 +13,18 @@ import re
 import select
 import socket
 import ssl
+import sys
 import tempfile
 import threading
 import time
 import unittest
 import uvloop
 
+LineEnding = b'\r\n' if sys.platform in ('win32', 'cli') else b'\n'
+
 
 class MockPattern(str):
+
     def __eq__(self, other):
         return bool(re.search(str(self), other, re.S))
 
@@ -97,7 +101,9 @@ class BaseTestCase(unittest.TestCase, metaclass=BaseTestCaseMeta):
         self.__unhandled_exceptions = []
 
     def tearDown(self):
-        self.loop.close()
+        if self.loop.is_running():
+            task = self.loop.create_task(asyncio.sleep(0.1))
+            self.loop.run_until_complete(task)
 
         if self.__unhandled_exceptions:
             print('Unexpected calls to loop.call_exception_handler():')
@@ -164,7 +170,7 @@ class BaseTestCase(unittest.TestCase, metaclass=BaseTestCaseMeta):
                    max_clients=10):
 
         if addr is None:
-            if family == socket.AF_UNIX:
+            if hasattr(socket, 'AF_UNIX') and family == socket.AF_UNIX:
                 with tempfile.NamedTemporaryFile() as tmp:
                     addr = tmp.name
             else:
@@ -258,6 +264,7 @@ def find_free_port(start_from=50000):
         with sock:
             try:
                 sock.bind(('', port))
+                sock.close()
             except socket.error:
                 continue
             else:
@@ -268,8 +275,8 @@ def find_free_port(start_from=50000):
 class SSLTestCase:
 
     def _create_server_ssl_context(self, certfile, keyfile=None):
-        if hasattr(ssl, 'PROTOCOL_TLS'):
-            sslcontext = ssl.SSLContext(ssl.PROTOCOL_TLS)
+        if hasattr(ssl, 'PROTOCOL_TLS_SERVER'):
+            sslcontext = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         else:
             sslcontext = ssl.SSLContext(ssl.PROTOCOL_SSLv23)
         sslcontext.options |= ssl.OP_NO_SSLv2
@@ -313,12 +320,19 @@ class AIOTestCase(BaseTestCase):
     def setUp(self):
         super().setUp()
 
-        watcher = asyncio.SafeChildWatcher()
-        watcher.attach_loop(self.loop)
-        asyncio.set_child_watcher(watcher)
+        if getattr(asyncio, 'SafeChildWatcher', None):
+            watcher = asyncio.SafeChildWatcher()
+            watcher.attach_loop(self.loop)
+            asyncio.set_child_watcher(watcher)
 
     def tearDown(self):
-        asyncio.set_child_watcher(None)
+        try:
+            if not self.loop.is_closed():
+                self.loop.run_until_complete(asyncio.sleep(0.1))
+            asyncio.set_child_watcher(None)
+        except NotImplementedError:
+            pass
+
         super().tearDown()
 
     def new_loop(self):
@@ -529,7 +543,7 @@ def run_until(loop, pred, timeout=30):
         if timeout is not None:
             timeout = deadline - time.time()
             if timeout <= 0:
-                raise asyncio.futures.TimeoutError()
+                raise asyncio.exceptions.TimeoutError()
         loop.run_until_complete(asyncio.tasks.sleep(0.001))
 
 

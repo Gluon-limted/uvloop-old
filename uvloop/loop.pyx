@@ -771,9 +771,9 @@ cdef class Loop:
         fd = self._fileobj_to_fd(fileobj)
         self._ensure_fd_no_transport(fd)
 
-        try:
+        if fd in self._polls:
             poll = <UVPoll>(self._polls[fd])
-        except KeyError:
+        else:
             poll = UVPoll.new(self, fd)
             self._polls[fd] = poll
 
@@ -1117,16 +1117,10 @@ cdef class Loop:
             self._remove_writer(sock)
 
     cdef _sock_set_reuseport(self, int fd):
-        cdef:
-            int err
-            int reuseport_flag = 1
+        #cdef:
+        #    int err
 
-        err = system.setsockopt(
-            fd,
-            uv.SOL_SOCKET,
-            SO_REUSEPORT,
-            <char*>&reuseport_flag,
-            sizeof(reuseport_flag))
+        err = system.setsockopt_reuseport(fd)
 
         if err < 0:
             raise convert_error(-errno.errno)
@@ -1759,8 +1753,8 @@ cdef class Loop:
 
                         if reuse_address:
                             sock.setsockopt(uv.SOL_SOCKET, uv.SO_REUSEADDR, 1)
-                        if reuse_port:
-                            sock.setsockopt(uv.SOL_SOCKET, uv.SO_REUSEPORT, 1)
+                        if reuse_port and has_SO_REUSEPORT:
+                            system.setsockopt_reuseport(uv.SOL_SOCKET)
                         # Disable IPv4/IPv6 dual stack support (enabled by
                         # default on Linux) which makes a single socket
                         # listen on both address families.
@@ -2866,7 +2860,7 @@ cdef class Loop:
             raise TypeError(
                 "coroutines cannot be used with add_signal_handler()")
 
-        if sig == uv.SIGCHLD:
+        if system.is_sigchild(sig):
             if (hasattr(callback, '__self__') and
                     isinstance(callback.__self__, aio_AbstractChildWatcher)):
 

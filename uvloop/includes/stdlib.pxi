@@ -44,7 +44,7 @@ cdef aio_isfuture = getattr(asyncio, 'isfuture', None)
 cdef aio_get_running_loop = getattr(asyncio, '_get_running_loop', None)
 cdef aio_set_running_loop = getattr(asyncio, '_set_running_loop', None)
 cdef aio_debug_wrapper = getattr(asyncio.coroutines, 'debug_wrapper', None)
-cdef aio_AbstractChildWatcher = asyncio.AbstractChildWatcher
+cdef aio_AbstractChildWatcher = getattr(asyncio, 'AbstractChildWatcher', None)
 cdef aio_Transport = asyncio.Transport
 cdef aio_FlowControlMixin = asyncio.transports._FlowControlMixin
 
@@ -100,18 +100,29 @@ cdef int socket_EAI_SOCKTYPE   = getattr(socket, 'EAI_SOCKTYPE', -1)
 
 cdef str os_name = os.name
 cdef os_environ = os.environ
-cdef os_dup = os.dup
-cdef os_set_inheritable = os.set_inheritable
 cdef os_get_inheritable = os.get_inheritable
-cdef os_close = os.close
 cdef os_open = os.open
 cdef os_devnull = os.devnull
 cdef os_O_RDWR = os.O_RDWR
-cdef os_pipe = os.pipe
 cdef os_read = os.read
 cdef os_remove = os.remove
 cdef os_stat = os.stat
 cdef os_fspath = os.fspath
+cdef os_fileno = system.GetFileHandle
+
+IF UNAME_SYSNAME == "Windows":
+    cdef os_pipe = os.pipe
+    cdef system_create_pipe = system.create_pipe
+    cdef system_file_redirect_stdio = system.file_redirect_stdio
+    cdef os_close = system.close_ex
+    cdef os_dup = system.dup_ex
+    cdef os_set_inheritable = system.set_inheritable
+
+ELSE:
+    cdef os_pipe = os.pipe
+    cdef os_close = os.close
+    cdef os_dup = os.dup
+    cdef os_set_inheritable = os.set_inheritable
 
 cdef stat_S_ISSOCK = stat.S_ISSOCK
 
@@ -145,7 +156,7 @@ cdef subprocess_SubprocessError = subprocess.SubprocessError
 
 cdef int signal_NSIG = signal.NSIG
 cdef signal_signal = signal.signal
-cdef signal_siginterrupt = signal.siginterrupt
+cdef signal_siginterrupt = getattr(signal, 'siginterrupt', None)
 cdef signal_set_wakeup_fd = signal.set_wakeup_fd
 cdef signal_default_int_handler = signal.default_int_handler
 cdef signal_SIG_DFL = signal.SIG_DFL

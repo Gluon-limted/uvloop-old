@@ -34,7 +34,7 @@ class _TestAioHTTP:
 
         async def test():
             # Make sure we're using the correct event loop.
-            self.assertIs(asyncio.get_event_loop(), self.loop)
+            self.assertIs(asyncio.get_running_loop(), self.loop)
 
             for addr in (('localhost', port),
                          ('127.0.0.1', port)):

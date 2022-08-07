@@ -37,7 +37,7 @@ async def foo():
 
 def main():
     uvloop.install()
-    loop = asyncio.get_event_loop()
+    loop = asyncio.new_event_loop()
     loop.set_debug(True)
     loop.run_until_complete(foo())
     # Do not close the loop on purpose: let __dealloc__ methods run.
@@ -50,14 +50,17 @@ if __name__ == '__main__':
             proc = await asyncio.create_subprocess_exec(
                 cmd, b'-W', b'ignore', b'-c', prog,
                 stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE)
+                stderr=subprocess.PIPE,
+                close_fds=True)
 
+            out, err = await proc.communicate()
             await proc.wait()
             out = await proc.stdout.read()
             err = await proc.stderr.read()
 
-            return out, err
+            ret_code = proc.returncode
+            return ret, out, err
 
-        out, err = self.loop.run_until_complete(test())
+        ret, out, err = self.loop.run_until_complete(test())
         self.assertEqual(out, b'', 'stdout is not empty')
         self.assertEqual(err, b'', 'stderr is not empty')
