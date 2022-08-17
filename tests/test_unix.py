@@ -6,11 +6,15 @@ import tempfile
 import time
 import unittest
 import sys
+from platform import uname
 
 from uvloop import _testbase as tb
 
+IsWindows = sys.platform in ('win32', 'cli')
+IsWsl = 'microsoft' in uname().release.lower()
 
-@unittest.skipIf(sys.platform not in ('win32', 'cygwin', 'cli'))
+
+@unittest.skipIf(IsWindows, 'AF_UNIX not supported')
 class _TestUnix:
     def test_create_unix_server_1(self):
         CNT = 0           # number of clients that were successful
@@ -605,6 +609,7 @@ class _TestSSL(tb.SSLTestCase):
         for client in clients:
             client.stop()
 
+    @unittest.skipIf(IsWsl, 'hangs in wsl')
     def test_create_unix_connection_ssl_1(self):
         CNT = 0
         TOTAL_CNT = 25

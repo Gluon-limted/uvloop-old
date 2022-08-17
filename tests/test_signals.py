@@ -353,13 +353,13 @@ print(fd0 == fd1, flush=True)
 class Test_UV_Signals(_TestSignal, tb.UVTestCase):
     NEW_LOOP = 'uvloop.new_event_loop()'
 
-    def test_signals_no_SIGCHLD(self):
+    def _test_signals_no_SIGCHLD(self):
         with self.assertRaisesRegex(RuntimeError,
                                     r"cannot add.*handler.*SIGCHLD"):
 
             self.loop.add_signal_handler(signal.SIGCHLD, lambda *a: None)
 
-    @unittest.skipIf(sys.version_info[:3] >= (3, 8, 0),
+    @unittest.skipIf(sys.version_info[:3] >= (3, 7, 0),
                      'in 3.8 a ThreadedChildWatcher is used '
                      '(does not rely on SIGCHLD)')
     def test_asyncio_add_watcher_SIGCHLD_nop(self):

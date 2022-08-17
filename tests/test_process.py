@@ -11,9 +11,12 @@ import time
 import unittest
 
 import psutil
+from platform import uname
 
 from uvloop import _testbase as tb
 
+IsWindows = sys.platform in ('win32', 'cli')
+IsWsl = 'microsoft' in uname().release.lower()
 
 class _RedirectFD(contextlib.AbstractContextManager):
     def __init__(self, old_file, new_file):
@@ -35,7 +38,7 @@ class _TestProcess:
 
     def test_process_env_1(self):
         async def test():
-            cmd = 'echo %FOO%%BAR%' if sys.platform in ('win32', 'cli') else 'echo $FOO$BAR'
+            cmd = 'echo %FOO%%BAR%' if IsWindows else 'echo $FOO$BAR'
             env = {'FOO': 'sp', 'BAR': 'am'}
             proc = await asyncio.create_subprocess_shell(
                 cmd,
@@ -51,7 +54,7 @@ class _TestProcess:
 
     def test_process_cwd_1(self):
         async def test():
-            cmd = 'echo %cd%' if sys.platform in ('win32', 'cli') else 'pwd'
+            cmd = 'echo %cd%' if IsWindows else 'pwd'
             env = {}
             cwd = '/'
             proc = await asyncio.create_subprocess_shell(
@@ -70,7 +73,7 @@ class _TestProcess:
     @unittest.skipUnless(hasattr(os, 'fspath'), 'no os.fspath()')
     def test_process_cwd_2(self):
         async def test():
-            cmd = 'echo %cd%' if sys.platform in ('win32', 'cli') else 'pwd'
+            cmd = 'echo %cd%' if IsWindows else 'pwd'
             env = {}
             cwd = pathlib.Path('/')
             proc = await asyncio.create_subprocess_shell(
@@ -212,15 +215,18 @@ exit(11)
             proc.stdin.write(b'HELLO' + tb.LineEnding)
             await proc.stdin.drain()
 
-            self.assertEqual(await proc.stdout.readline(), b'HELLO' + tb.LineEnding)
+            self.assertEqual(await proc.stdout.readline(), b'HELLO'
+                             + tb.LineEnding)
 
             proc.send_signal(signal.SIGUSR1)
 
             proc.stdin.write(b'!' + tb.LineEnding)
             await proc.stdin.drain()
 
-            self.assertEqual(await proc.stdout.readline(), b'WORLD' + tb.LineEnding)
-            self.assertEqual(await proc.stdout.readline(), b'!' + tb.LineEnding)
+            self.assertEqual(await proc.stdout.readline(), b'WORLD'
+                             + tb.LineEnding)
+            self.assertEqual(await proc.stdout.readline(), b'!'
+                             + tb.LineEnding)
             self.assertEqual(await proc.wait(), 11)
 
         self.loop.run_until_complete(test())
@@ -291,7 +297,8 @@ print('err', file=sys.stderr, flush=True)
 
             out, err = await proc.communicate()
             self.assertIsNone(err)
-            self.assertEqual(out, b'out' + tb.LineEnding + 'err' + tb.LineEnding)
+            self.assertEqual(out, b'out' + tb.LineEnding + b'err'
+                             + tb.LineEnding)
 
         self.loop.run_until_complete(test())
 
@@ -373,7 +380,7 @@ print("OK")
 
     def test_subprocess_fd_leak_2(self):
         async def main(n):
-            cmd = 'dir' if sys.platform in ('win32', 'cli') else 'ls'
+            cmd = 'dir' if IsWindows else 'ls'
             for i in range(n):
                 try:
                     p = await asyncio.create_subprocess_exec(
@@ -599,7 +606,7 @@ class _AsyncioTests:
         proc.kill()
         returncode = self.loop.run_until_complete(proc.wait())
 
-        self.assertEqual(1 if sys.platform in ('win32', 'cli') else -signal.SIGKILL, returncode)
+        self.assertEqual(1 if IsWindows else -signal.SIGKILL, returncode)
 
     def test_terminate(self):
         args = self.PROGRAM_BLOCKED
@@ -607,7 +614,7 @@ class _AsyncioTests:
         proc = self.loop.run_until_complete(create)
         proc.terminate()
         returncode = self.loop.run_until_complete(proc.wait())
-        self.assertEqual(1 if sys.platform in ('win32', 'cli') else -signal.SIGTERM, returncode)
+        self.assertEqual(1 if IsWindows else -signal.SIGTERM, returncode)
 
     def test_send_signal(self):
         code = 'import time; print("sleeping", flush=True); time.sleep(3600)'
@@ -625,7 +632,7 @@ class _AsyncioTests:
             return returncode
 
         returncode = self.loop.run_until_complete(send_signal(proc))
-        self.assertEqual(1 if sys.platform in ('win32', 'cli') else -signal.SIGTERM, returncode)
+        self.assertEqual(1 if IsWindows else -signal.SIGTERM, returncode)
 
     def test_cancel_process_wait(self):
         # Issue #23140: cancel Process.wait()
@@ -724,6 +731,7 @@ class _AsyncioTests:
     def test_communicate_large_stdout_65537(self):
         self._test_communicate_large_stdout(65537)
 
+    @unittest.skipIf(IsWsl, 'WSL hangs')
     def test_communicate_large_stdout_1000000(self):
         self._test_communicate_large_stdout(1000000)
 

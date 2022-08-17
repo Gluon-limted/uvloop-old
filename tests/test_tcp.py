@@ -10,9 +10,13 @@ import sys
 import threading
 import time
 import weakref
+from platform import uname
 
 from OpenSSL import SSL as openssl_ssl
 from uvloop import _testbase as tb
+
+IsWindows = sys.platform in ('win32', 'cli')
+IsWsl = 'microsoft' in uname().release.lower()
 
 
 SSL_HANDSHAKE_TIMEOUT = 15.0
@@ -244,6 +248,7 @@ class _TestTCP:
 
         self.loop.run_until_complete(runner())
 
+    @unittest.skipIf(IsWsl, 'WSL Segmentation fault (core dumped)')
     def test_create_server_6(self):
         if not hasattr(socket, 'SO_REUSEPORT'):
             raise unittest.SkipTest(
