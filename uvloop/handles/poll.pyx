@@ -10,8 +10,13 @@ cdef class UVPoll(UVHandle):
             self._abort_init()
             raise MemoryError()
 
-        err = uv.uv_poll_init(self._loop.uvloop,
-                              <uv.uv_poll_t *>self._handle, fd)
+        if system.PLATFORM_IS_WINDOWS :
+            err = uv.uv_poll_init(self._loop.uvloop,
+                                  <uv.uv_poll_t *>self._handle, fd)
+        else:
+            err = uv.uv_poll_init(self._loop.uvloop,
+                                  <uv.uv_poll_t *> self._handle, fd)
+
         if err < 0:
             self._abort_init()
             raise convert_error(err)
@@ -29,7 +34,7 @@ cdef class UVPoll(UVHandle):
         handle._init(loop, fd)
         return handle
 
-    cdef int is_active(self):
+    cdef int is_active(self) noexcept:
         return (self.reading_handle is not None or
                 self.writing_handle is not None)
 
@@ -74,7 +79,7 @@ cdef class UVPoll(UVHandle):
             # It's safe though to manually call epoll_ctl here,
             # after calling uv_poll_stop.
 
-            backend_id = uv.uv_backend_fd(self._loop.uvloop)
+            backend_id = uv.uv_backend_fd(<uv.uv_loop_t*>self._loop.uvloop)
             if backend_id != -1:
                 memset(&dummy_event, 0, sizeof(dummy_event))
                 system.epoll_ctl(
@@ -191,7 +196,7 @@ cdef class UVPoll(UVHandle):
 
 
 cdef void __on_uvpoll_event(uv.uv_poll_t* handle,
-                            int status, int events) with gil:
+                            int status, int events) noexcept with gil:
 
     if __ensure_handle_data(<uv.uv_handle_t*>handle, "UVPoll callback") == 0:
         return

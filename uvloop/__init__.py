@@ -52,3 +52,85 @@ class EventLoopPolicy(__BasePolicy):
             self, watcher: _typing.Any
         ) -> _typing.NoReturn:
             ...
+
+import functools
+import time
+from typing import Callable, Any
+def async_timed():
+    def wrapper(func: Callable) -> Callable:
+        @functools.wraps(func)
+        async def wrapped(*args, **kwargs) -> Any:
+            print(f'starting {func} with args {args} {kwargs}')
+            start = time.time()
+            try:
+                return await func(*args, **kwargs)
+            finally:
+                end = time.time()
+                total = end - start
+                print(f'finished {func} in {total:.4f} second(s)')
+
+        return wrapped
+
+    return wrapper
+
+import sys
+if sys.platform in ('win32', 'cli'):
+    import sys, os.path, ctypes, ctypes.wintypes
+
+    Psapi = ctypes.WinDLL('Psapi.dll')
+    EnumProcesses = Psapi.EnumProcesses
+    EnumProcesses.restype = ctypes.wintypes.BOOL
+    GetProcessImageFileName = Psapi.GetProcessImageFileNameA
+    GetProcessImageFileName.restype = ctypes.wintypes.DWORD
+
+    Kernel32 = ctypes.WinDLL('kernel32.dll')
+    OpenProcess = Kernel32.OpenProcess
+    OpenProcess.restype = ctypes.wintypes.HANDLE
+    TerminateProcess = Kernel32.TerminateProcess
+    TerminateProcess.restype = ctypes.wintypes.BOOL
+    CloseHandle = Kernel32.CloseHandle
+
+    MAX_PATH = 260
+    PROCESS_TERMINATE = 0x0001
+    PROCESS_QUERY_INFORMATION = 0x0400
+
+    def ProcessCount() :
+        count = 32
+        while True:
+            ProcessIds = (ctypes.wintypes.DWORD*count)()
+            cb = ctypes.sizeof(ProcessIds)
+            BytesReturned = ctypes.wintypes.DWORD()
+            if EnumProcesses(ctypes.byref(ProcessIds), cb, ctypes.byref(BytesReturned)):
+                if BytesReturned.value<cb:
+                    break
+                else:
+                    count *= 2
+            else:
+                sys.exit("Call to EnumProcesses failed")
+        return BytesReturned.value / ctypes.sizeof(ctypes.wintypes.DWORD), ProcessIds
+
+    def IsProcessRunning(pid):
+        processCount, ProcessIds = ProcessCount()
+        return pid in ProcessIds
+    def KillProcessName(processname):
+        processCount, ProcessIds = ProcessCount()
+        for index in range(processCount):
+            ProcessId = ProcessIds[index]
+            hProcess = OpenProcess(PROCESS_TERMINATE | PROCESS_QUERY_INFORMATION, False, ProcessId)
+            if hProcess:
+                ImageFileName = (ctypes.c_char*MAX_PATH)()
+                if GetProcessImageFileName(hProcess, ImageFileName, MAX_PATH)>0:
+                    filename = os.path.basename(ImageFileName.value)
+                    if filename == processname:
+                        TerminateProcess(hProcess, 1)
+                CloseHandle(hProcess)
+else:
+    def IsProcessRunning(pid):
+        try :
+            os.kill(pid, 0)
+            return True
+        except ProcessLookupError:
+            return False
+        except:
+            raise
+
