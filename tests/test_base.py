@@ -11,6 +11,7 @@ import weakref
 
 from unittest import mock
 from uvloop._testbase import UVTestCase, AIOTestCase
+from uvloop import _testbase as tb
 
 
 class _TestBase:
@@ -27,7 +28,7 @@ class _TestBase:
         self.loop.close()
 
         # operation blocked when the loop is closed
-        f = self.loop.create_future()
+        f = asyncio.Future()
         self.assertRaises(RuntimeError, self.loop.run_forever)
         self.assertRaises(RuntimeError, self.loop.run_until_complete, f)
 
@@ -156,6 +157,7 @@ class _TestBase:
         started = time.monotonic()
         self.loop.run_forever()
         finished = time.monotonic()
+        self.loop.close()
 
         self.assertEqual(calls, [10, 1])
         self.assertFalse(self.loop.is_running())
@@ -445,7 +447,7 @@ class _TestBase:
 
         # Test call_soon (events.Handle)
         with mock.patch.object(logger, 'error') as log:
-            fut = self.loop.create_future()
+            fut = asyncio.Future()
             self.loop.call_soon(zero_error, fut)
             fut.add_done_callback(lambda fut: self.loop.stop())
             self.loop.run_forever()
@@ -455,7 +457,7 @@ class _TestBase:
 
         # Test call_later (events.TimerHandle)
         with mock.patch.object(logger, 'error') as log:
-            fut = self.loop.create_future()
+            fut = asyncio.Future()
             self.loop.call_later(0.01, zero_error, fut)
             fut.add_done_callback(lambda fut: self.loop.stop())
             self.loop.run_forever()
@@ -540,7 +542,9 @@ class _TestBase:
         async def coro():
             pass
 
-        factory = lambda loop, coro: MyTask(coro, loop=loop)
+        factory = lambda loop, coro, **kwargs: MyTask(
+            coro, loop=loop, **kwargs
+        )
 
         self.assertIsNone(self.loop.get_task_factory())
         self.loop.set_task_factory(factory)
@@ -577,7 +581,9 @@ class _TestBase:
         async def coro():
             pass
 
-        factory = lambda loop, coro: MyTask(coro, loop=loop)
+        factory = lambda loop, coro, **kwargs: MyTask(
+            coro, loop=loop, **kwargs
+        )
 
         self.assertIsNone(self.loop.get_task_factory())
         task = self.loop.create_task(coro(), name="mytask")
@@ -763,7 +769,7 @@ class TestBaseUV(_TestBase, UVTestCase):
         self.run_loop_briefly(delay=0.05)
         self.assertFalse(handle.cancelled())
 
-    @unittest.skipIf(sys.platform in ('win32', 'cygwin', 'cli'), 'Hangs')
+    @unittest.skipIf(tb.IsWindows, 'Not Supported')
     def test_loop_std_files_cloexec(self):
         import fcntl
         # See https://github.com/MagicStack/uvloop/issues/40 for details.
@@ -916,7 +922,7 @@ class TestPolicy(unittest.TestCase):
                          'No asyncio._get_running_loop')
     def test_get_event_loop_returns_running_loop(self):
         class Policy(asyncio.DefaultEventLoopPolicy):
-            def get_running_loop(self):
+            def get_event_loop(self):
                 raise NotImplementedError
 
         loop = None
@@ -928,7 +934,7 @@ class TestPolicy(unittest.TestCase):
             self.assertIs(asyncio._get_running_loop(), None)
 
             async def func():
-                self.assertIs(asyncio.get_running_loop(), loop)
+                self.assertIs(asyncio.get_event_loop(), loop)
                 self.assertIs(asyncio._get_running_loop(), loop)
 
             loop.run_until_complete(func())

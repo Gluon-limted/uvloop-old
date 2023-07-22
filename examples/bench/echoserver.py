@@ -7,7 +7,7 @@ import socket
 import ssl
 
 
-PRINT = 0
+PRINT = 1
 
 
 async def echo_server(loop, address, unix):

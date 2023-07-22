@@ -1,12 +1,12 @@
 import asyncio
 import ctypes.util
 import logging
-import sys
 from concurrent.futures import ThreadPoolExecutor
 from threading import Thread
 from unittest import TestCase
 
 import uvloop
+from uvloop import _testbase as tb
 
 
 class ProcessSpawningTestCollection(TestCase):
@@ -75,7 +75,7 @@ class ProcessSpawningTestCollection(TestCase):
 
         def spawn_process():
             """Spawn external process via `popen` system call."""
-            if sys.platform in ('win32', 'cli') :
+            if tb.IsWindows:
                 stdio = ctypes.CDLL(ctypes.util.find_library('ucrtbase'))
                 popen = stdio._popen
                 pclose = stdio._pclose

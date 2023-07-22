@@ -50,17 +50,15 @@ if __name__ == '__main__':
             proc = await asyncio.create_subprocess_exec(
                 cmd, b'-W', b'ignore', b'-c', prog,
                 stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                close_fds=True)
+                stderr=subprocess.PIPE)
 
-            out, err = await proc.communicate()
             await proc.wait()
             out = await proc.stdout.read()
             err = await proc.stderr.read()
-
             ret_code = proc.returncode
-            return ret, out, err
+            return ret_code, out, err
 
         ret, out, err = self.loop.run_until_complete(test())
+        self.assertEqual(ret, 0, 'ret code not 0')
         self.assertEqual(out, b'', 'stdout is not empty')
         self.assertEqual(err, b'', 'stderr is not empty')

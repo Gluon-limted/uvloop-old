@@ -162,7 +162,7 @@ cdef class _StreamWriteContext:
                     PyObject_GetBuffer(
                         buf, &p_pybufs[py_bufs_len], PyBUF_SIMPLE)
                 except Exception:
-                    # This shouldn't ever happen, as `UVStream._write`
+                    # This shouldn't ever happen, as `UVStream._buffer_write`
                     # casts non-bytes objects to `memoryviews`.
                     ctx.py_bufs_len = py_bufs_len
                     ctx.free_bufs()
@@ -370,21 +370,33 @@ cdef class UVStream(UVBaseTransport):
             # Empty data, do nothing.
             return 0
 
-        fd = self._fileno()
-        # Use `unistd.h/write` directly, it's faster than
-        # uv_try_write -- less layers of code.  The error
-        # checking logic is copied from libuv.
-        written = system.write(fd, buf, blen)
-        while written == -1 and (
-                errno.errno == errno.EINTR or
-                (system.PLATFORM_IS_APPLE and
-                    errno.errno == errno.EPROTOTYPE)):
-            # From libuv code (unix/stream.c):
-            #   Due to a possible kernel bug at least in OS X 10.10 "Yosemite",
-            #   EPROTOTYPE can be returned while trying to write to a socket
-            #   that is shutting down. If we retry the write, we should get
-            #   the expected EPIPE instead.
+        IF UNAME_SYSNAME == "Windows":
+            if used_buf == 0:
+                used_buf = 1
+                PyObject_GetBuffer(data, &py_buf, PyBUF_SIMPLE)
+
+            write_tot = 0
+            while (write_tot < blen):
+                written = uv.uv_try_write(<uv.uv_stream_t*>self._handle, <uv.uv_buf_t*>&py_buf, used_buf)
+                if written < 0:
+                    break
+                write_tot += written
+        ELSE :
+            fd = self._fileno()
+            # Use `unistd.h/write` directly, it's faster than
+            # uv_try_write -- less layers of code.  The error
+            # checking logic is copied from libuv.
             written = system.write(fd, buf, blen)
+            while written == -1 and (
+                    errno.errno == errno.EINTR or
+                    (system.PLATFORM_IS_APPLE and
+                        errno.errno == errno.EPROTOTYPE)):
+                # From libuv code (unix/stream.c):
+                #   Due to a possible kernel bug at least in OS X 10.10 "Yosemite",
+                #   EPROTOTYPE can be returned while trying to write to a socket
+                #   that is shutting down. If we retry the write, we should get
+                #   the expected EPIPE instead.
+                written = system.write(fd, buf, blen)
         saved_errno = errno.errno
 
         if used_buf:
@@ -407,7 +419,7 @@ cdef class UVStream(UVBaseTransport):
 
         return written
 
-    cdef inline _write(self, object data):
+    cdef inline _buffer_write(self, object data):
         cdef int dlen
 
         if not PyBytes_CheckExact(data):
@@ -420,6 +432,7 @@ cdef class UVStream(UVBaseTransport):
         self._buffer_size += dlen
         self._buffer.append(data)
 
+    cdef inline _initiate_write(self):
         if (not self._protocol_paused and
                 (<uv.uv_stream_t*>self._handle).write_queue_size == 0 and
                 self._buffer_size > self._high_water):
@@ -443,10 +456,10 @@ cdef class UVStream(UVBaseTransport):
                 # If not all of the data was sent successfully,
                 # we might need to pause the protocol.
                 self._maybe_pause_protocol()
-            return
 
-        self._maybe_pause_protocol()
-        self._loop._queue_write(self)
+        elif self._buffer_size > 0:
+            self._maybe_pause_protocol()
+            self._loop._queue_write(self)
 
     cdef inline _exec_write(self):
         cdef:
@@ -679,7 +692,8 @@ cdef class UVStream(UVBaseTransport):
         if self._conn_lost:
             self._conn_lost += 1
             return
-        self._write(buf)
+        self._buffer_write(buf)
+        self._initiate_write()
 
     def writelines(self, bufs):
         self._ensure_alive()
@@ -690,7 +704,8 @@ cdef class UVStream(UVBaseTransport):
             self._conn_lost += 1
             return
         for buf in bufs:
-            self._write(buf)
+            self._buffer_write(buf)
+        self._initiate_write()
 
     def write_eof(self):
         self._ensure_alive()

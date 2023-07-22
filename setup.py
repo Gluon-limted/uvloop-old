@@ -17,23 +17,26 @@ import subprocess
 import sys
 
 from setuptools import setup, Extension
-from setuptools.command.build_ext import build_ext as build_ext
-from setuptools.command.sdist import sdist as sdist
+from setuptools.command.build_ext import build_ext
+from setuptools.command.sdist import sdist
 
 
-CYTHON_DEPENDENCY = 'Cython(>=0.29.24,<0.30.0)'
+CYTHON_DEPENDENCY = 'Cython(>=0.29.32,<0.30.0)'
 
 # Minimal dependencies required to test uvloop.
 TEST_DEPENDENCIES = [
     # pycodestyle is a dependency of flake8, but it must be frozen because
     # their combination breaks too often
     # (example breakage: https://gitlab.com/pycqa/flake8/issues/427)
-    'aiohttp',
-    'flake8~=3.9.2',
+    # aiohttp doesn't support 3.11 yet,
+    # see https://github.com/aio-libs/aiohttp/issues/6600
+    'aiohttp ; python_version < "3.11"',
+    'flake8~=5.0',
     'psutil',
-    'pycodestyle~=2.7.0',
-    'pyOpenSSL~=19.0.0',
+    'pycodestyle~=2.9.0',
+    'pyOpenSSL~=23.0.0',
     'mypy>=0.800',
+    CYTHON_DEPENDENCY,
 ]
 
 # Dependencies required to build documentation.
@@ -53,9 +56,14 @@ EXTRA_DEPENDENCIES = {
     ] + DOC_DEPENDENCIES + TEST_DEPENDENCIES
 }
 
+DEBUG = os.path.basename(sys.executable).startswith('python_d')
+if sys.platform in ('win32', 'cli'):
+    C_OPT = '-Od' if DEBUG else '-O2'
+else:
+    C_OPT = '-O2'
 
 MACHINE = platform.machine()
-CFLAGS = ['-O2']
+MODULES_CFLAGS = [os.getenv('UVLOOP_OPT_CFLAGS', C_OPT)]
 _ROOT = pathlib.Path(__file__).parent
 LIBUV_DIR = str(_ROOT / 'vendor' / 'libuv')
 LIBUV_BUILD_DIR = str(_ROOT / 'build' / 'libuv-{}'.format(MACHINE))
@@ -114,12 +122,6 @@ class uvloop_build_ext(build_ext):
     ]
 
     def initialize_options(self):
-        # initialize_options() may be called multiple times on the
-        # same command object, so make sure not to override previously
-        # set options.
-        if getattr(self, '_initialized', False):
-            return
-
         super().initialize_options()
         self.use_system_libuv = False
         self.cython_always = False
@@ -127,12 +129,6 @@ class uvloop_build_ext(build_ext):
         self.cython_directives = None
 
     def finalize_options(self):
-        # finalize_options() may be called multiple times on the
-        # same command object, so make sure not to override previously
-        # set options.
-        if getattr(self, '_initialized', False):
-            return
-
         need_cythonize = self.cython_always
         cfiles = {}
 
@@ -188,26 +184,26 @@ class uvloop_build_ext(build_ext):
             self.distribution.ext_modules[:] = cythonize(
                 self.distribution.ext_modules,
                 compiler_directives=directives,
-                annotate=self.cython_annotate)
+                annotate=self.cython_annotate,
+                emit_linenums=True)
 
         super().finalize_options()
-
-        self._initialized = True
 
     def build_libuv(self):
         env = _libuv_build_env()
 
         # Make sure configure and friends are present in case
         # we are building from a git checkout.
-        if sys.platform in ('win32', 'cli') :
+        if sys.platform in ('win32', 'cli'):
             print(r'''
-        "C:\Program Files\Microsoft Visual Studio\2022\Professional\VC\Auxiliary\Build\vcvarsall.bat" amd64
-        cd vendor\libuv
-        mkdir build
-        cd build
-        cmake .. -G "Visual Studio 17 2022 Win64"
+"C:\Program Files\Microsoft Visual Studio\2022\Professional\VC\Auxiliary\Build\vcvarsall.bat" amd64'''  # noqa: E501
+                  '''
+cd vendor\\libuv
+mkdir build
+cd build
+cmake .. -G "Visual Studio 17 2022"
 ''')
-        else :
+        else:
             _libuv_autogen(env)
 
         # Copy the libuv tree to build/ so that its build
@@ -246,18 +242,23 @@ class uvloop_build_ext(build_ext):
                 # Support macports on Mac OS X.
                 self.compiler.add_include_dir('/opt/local/include')
         else:
-            if sys.platform in ('win32', 'cli')  :
-                libuv_lib = os.path.join(LIBUV_DIR, 'build', 'libuv-{}'.format(MACHINE), 'uv.lib')
-                self.compiler.add_include_dir(os.path.join(LIBUV_DIR, 'include'))
-            else :
+            if sys.platform in ('win32', 'cli'):
+                if DEBUG:
+                    # static lib debug
+                    libuv_lib = os.path.join(LIBUV_DIR, 'out', 'build',
+                                             'x64-Debug', 'libuv.lib')
+                else:
+                    libuv_lib = os.path.join(LIBUV_DIR, 'out', 'build',
+                                             'x64-Release', 'libuv.lib')
+            else:
                 libuv_lib = os.path.join(LIBUV_BUILD_DIR, '.libs', 'libuv.a')
-                self.compiler.add_include_dir(os.path.join(LIBUV_DIR, 'include'))
                 if not os.path.exists(libuv_lib):
                     self.build_libuv()
             if not os.path.exists(libuv_lib):
                 raise RuntimeError('failed to build libuv')
 
             self.extensions[-1].extra_objects.extend([libuv_lib])
+            self.compiler.add_include_dir(os.path.join(LIBUV_DIR, 'include'))
 
         if sys.platform.startswith('linux'):
             self.compiler.add_library('rt')
@@ -268,6 +269,15 @@ class uvloop_build_ext(build_ext):
 
         if sys.platform in ('win32', 'cli'):
             self.compiler.add_library('ws2_32')
+            # Added for static linking:
+            self.compiler.add_library('advapi32')
+            self.compiler.add_library('dbghelp')
+            self.compiler.add_library('iphlpapi')
+            self.compiler.add_library('ole32')
+            self.compiler.add_library('secur32')
+            self.compiler.add_library('shell32')
+            self.compiler.add_library('user32')
+            self.compiler.add_library('userenv')
         else:
             self.compiler.add_library('pthread')
 
@@ -304,7 +314,7 @@ setup(
     license='MIT',
     author='Yury Selivanov',
     author_email='yury@magic.io',
-    platforms=['macOS', 'POSIX'],
+    platforms=['macOS', 'POSIX', 'Windows'],
     version=VERSION,
     packages=['uvloop'],
     cmdclass={
@@ -317,7 +327,8 @@ setup(
             sources=[
                 "uvloop/loop.pyx",
             ],
-            extra_compile_args=CFLAGS,
+            extra_compile_args=MODULES_CFLAGS,
+            define_macros=[('CYTHON_TRACE_NOGIL', '1')],
         ),
     ],
     classifiers=[

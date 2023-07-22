@@ -1,3 +1,5 @@
+volatile uint64_t MAIN_THREAD_ID = 0;
+volatile int8_t MAIN_THREAD_ID_SET = 0;
 
 #ifdef _WIN32
 /* No fork() in windows - so ignore this */
@@ -12,7 +14,7 @@
 
 #endif
 
-typedef void (*OnForkHandler)();
+typedef void (*OnForkHandler)(void);
 
 OnForkHandler __forkHandler = NULL;
 
@@ -22,6 +24,10 @@ Note: Fork handler needs to be in C (not cython) otherwise it would require
 GIL to be present, but some forks can exec non-python processes.
 */
 void handleAtFork(void) {
+    // Reset the MAIN_THREAD_ID on fork, because the main thread ID is not
+    // always the same after fork, especially when forked from within a thread.
+    MAIN_THREAD_ID_SET = 0;
+
     if (__forkHandler != NULL) {
         __forkHandler();
     }
@@ -37,4 +43,9 @@ void setForkHandler(OnForkHandler handler)
 void resetForkHandler(void)
 {
     __forkHandler = NULL;
+}
+
+void setMainThreadID(uint64_t id) {
+    MAIN_THREAD_ID = id;
+    MAIN_THREAD_ID_SET = 1;
 }

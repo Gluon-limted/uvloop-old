@@ -10,6 +10,7 @@ from uvloop import _testbase as tb
 
 HAS_AF_UNIX = hasattr(socket, 'AF_UNIX')
 
+
 class MyDatagramProto(asyncio.DatagramProtocol):
     done = None
 
@@ -220,13 +221,14 @@ class _TestUDP:
                 if self.done and not self.done.done():
                     self.done.set_result(None)
 
-        if HAS_AF_UNIX :
+        if HAS_AF_UNIX:
             tmp_file = os.path.join(tempfile.gettempdir(), str(uuid.uuid4()))
             sock = socket.socket(socket.AF_UNIX, type=socket.SOCK_DGRAM)
             sock.bind(tmp_file)
         else:
             sock = socket.socket(socket.AF_INET, type=socket.SOCK_DGRAM)
-            sock.bind( ('127.0.0.1', 0))
+            sock.bind(('127.0.0.1', 0))
+            tmp_file = sock.getsockname()
 
         with sock:
             pr = Proto(loop=self.loop)
@@ -236,12 +238,14 @@ class _TestUDP:
             self.assertIs(pr, pr_prime)
 
             if HAS_AF_UNIX:
-                tmp_file2 = os.path.join(tempfile.gettempdir(), str(uuid.uuid4()))
+                tmp_file2 = os.path.join(tempfile.gettempdir(),
+                                         str(uuid.uuid4()))
                 sock2 = socket.socket(socket.AF_UNIX, type=socket.SOCK_DGRAM)
                 sock2.bind(tmp_file2)
             else:
                 sock2 = socket.socket(socket.AF_INET, type=socket.SOCK_DGRAM)
                 sock2.bind(('127.0.0.1', 0))
+                tmp_file2 = sock2.getsockname()
 
             with sock2:
                 f2 = self.loop.create_datagram_endpoint(
@@ -292,7 +296,8 @@ class _TestUDP:
                 super().datagram_received(data, addr)
                 peername.set_result(addr)
 
-        s1, s2 = socket.socketpair(socket.AF_UNIX, socket.SOCK_DGRAM, 0)
+        s1, s2 = socket.socketpair(socket.AF_UNIX, socket.SOCK_DGRAM, 0) if \
+            HAS_AF_UNIX else socket.socketpair()
 
         with s1, s2:
             f = self.loop.create_datagram_endpoint(

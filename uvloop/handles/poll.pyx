@@ -9,9 +9,12 @@ cdef class UVPoll(UVHandle):
         if self._handle is NULL:
             self._abort_init()
             raise MemoryError()
-
-        err = uv.uv_poll_init(self._loop.uvloop,
-                              <uv.uv_poll_t *>self._handle, fd)
+        IF UNAME_SYSNAME == "Windows":
+            err = uv.uv_poll_init(self._loop.uvloop,
+                                  <uv.uv_poll_t *>self._handle, <uv.uv_os_fd_t>fd)
+        ELSE:
+            err = uv.uv_poll_init(self._loop.uvloop,
+                                  <uv.uv_poll_t *> self._handle, fd)
         if err < 0:
             self._abort_init()
             raise convert_error(err)

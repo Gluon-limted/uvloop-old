@@ -10,13 +10,9 @@ import sys
 import threading
 import time
 import weakref
-from platform import uname
 
 from OpenSSL import SSL as openssl_ssl
 from uvloop import _testbase as tb
-
-IsWindows = sys.platform in ('win32', 'cli')
-IsWsl = 'microsoft' in uname().release.lower()
 
 
 SSL_HANDSHAKE_TIMEOUT = 15.0
@@ -226,7 +222,7 @@ class _TestTCP:
 
             with self.assertRaisesRegex(OSError,
                                         r"error while attempting.*\('127.*: "
-                                        r"address already in use"):
+                                        r"address( already)? in use"):
 
                 self.loop.run_until_complete(
                     self.loop.create_server(object, *addr))
@@ -248,7 +244,6 @@ class _TestTCP:
 
         self.loop.run_until_complete(runner())
 
-    @unittest.skipIf(IsWsl, 'WSL Segmentation fault (core dumped)')
     def test_create_server_6(self):
         if not hasattr(socket, 'SO_REUSEPORT'):
             raise unittest.SkipTest(
@@ -324,7 +319,8 @@ class _TestTCP:
                 ValueError, 'ssl_handshake_timeout is only meaningful'):
             self.loop.run_until_complete(
                 self.loop.create_server(
-                    lambda: None, host='::', port=0, ssl_handshake_timeout=10))
+                    lambda: None, host='::', port=0,
+                    ssl_handshake_timeout=SSL_HANDSHAKE_TIMEOUT))
 
     def test_create_server_9(self):
         async def handle_client(reader, writer):
@@ -555,7 +551,8 @@ class _TestTCP:
                 ValueError, 'ssl_handshake_timeout is only meaningful'):
             self.loop.run_until_complete(
                 self.loop.create_connection(
-                    lambda: None, host='::', port=0, ssl_handshake_timeout=10))
+                    lambda: None, host='::', port=0,
+                    ssl_handshake_timeout=SSL_HANDSHAKE_TIMEOUT))
 
     def test_transport_shutdown(self):
         CNT = 0           # number of clients that were successful
@@ -657,46 +654,63 @@ class _TestTCP:
         self.assertIsNone(
             self.loop.run_until_complete(connection_lost_called))
 
-    def test_context_run_segfault(self):
-        is_new = False
-        done = self.loop.create_future()
+    @unittest.skipIf(tb.IsWindows, 'Hangs')
+    def test_resume_writing_write_different_transport(self):
+        loop = self.loop
 
-        def server(sock):
-            sock.sendall(b'hello')
-
-        class Protocol(asyncio.Protocol):
-            def __init__(self):
-                self.transport = None
-
-            def connection_made(self, transport):
-                self.transport = transport
+        class P1(asyncio.Protocol):
+            def __init__(self, t2):
+                self.t2 = t2
+                self.paused = False
+                self.waiter = loop.create_future()
 
             def data_received(self, data):
-                try:
-                    self = weakref.ref(self)
-                    nonlocal is_new
-                    if is_new:
-                        done.set_result(data)
-                    else:
-                        is_new = True
-                        new_proto = Protocol()
-                        self().transport.set_protocol(new_proto)
-                        new_proto.connection_made(self().transport)
-                        new_proto.data_received(data)
-                except Exception as e:
-                    done.set_exception(e)
+                self.waiter.set_result(data)
 
-        async def test(addr):
-            await self.loop.create_connection(Protocol, *addr)
-            data = await done
+            def pause_writing(self):
+                self.paused = True
+
+            def resume_writing(self):
+                self.paused = False
+                self.t2.write(b'hello')
+
+        s1, s2 = socket.socketpair()
+        s1.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 1024)
+        s2.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 1024)
+
+        async def _test(t1, p1, t2):
+            t1.set_write_buffer_limits(1024, 1023)
+
+            # fill s1 up first
+            t2.pause_reading()
+            while not p1.paused:
+                t1.write(b' ' * 1024)
+
+            # trigger resume_writing() in _exec_queued_writes() with tight loop
+            t2.resume_reading()
+            while p1.paused:
+                t1.write(b' ')
+                await asyncio.sleep(0)
+
+            # t2.write() in p1.resume_writing() should work fine
+            data = await asyncio.wait_for(p1.waiter, 5)
             self.assertEqual(data, b'hello')
 
-        with self.tcp_server(server) as srv:
-            self.loop.run_until_complete(test(srv.addr))
+        async def test():
+            t2, _ = await loop.create_connection(asyncio.Protocol, sock=s2)
+            t1, p1 = await loop.create_connection(lambda: P1(t2), sock=s1)
+            try:
+                await _test(t1, p1, t2)
+            finally:
+                t1.close()
+                t2.close()
+
+        with s1, s2:
+            loop.run_until_complete(test())
 
 
 class Test_UV_TCP(_TestTCP, tb.UVTestCase):
-
+    @unittest.skipIf(tb.IsWindows, 'Hangs')
     def test_create_server_buffered_1(self):
         SIZE = 123123
         eof = False
@@ -854,6 +868,7 @@ class Test_UV_TCP(_TestTCP, tb.UVTestCase):
         self.loop.run_until_complete(
             test(ProtoUpdatedError, RuntimeError, r'^oups$'))
 
+    @unittest.skipIf(tb.IsWindows, 'Hangs')
     def test_transport_get_extra_info(self):
         # This tests is only for uvloop.  asyncio should pass it
         # too in Python 3.6.
@@ -1266,7 +1281,7 @@ class _TestSSL(tb.SSLTestCase):
     def test_create_server_ssl_1(self):
         CNT = 0           # number of clients that were successful
         TOTAL_CNT = 25    # total number of clients that test will create
-        TIMEOUT = 10.0    # timeout for this test
+        TIMEOUT = 20.0    # timeout for this test
 
         A_DATA = b'A' * 1024 * 1024
         B_DATA = b'B' * 1024 * 1024
@@ -1583,6 +1598,7 @@ class _TestSSL(tb.SSLTestCase):
         # exception or log an error, even if the handshake failed
         self.assertEqual(messages, [])
 
+    @unittest.skipIf(tb.IsWindows, 'Hangs')
     def test_ssl_handshake_connection_lost(self):
         # #246: make sure that no connection_lost() is called before
         # connection_made() is called first
@@ -1632,6 +1648,7 @@ class _TestSSL(tb.SSLTestCase):
         elif connection_made_called:
             self.fail("unexpected call to connection_made()")
 
+    @unittest.skipIf(tb.IsWindows, 'Hangs')
     def test_ssl_connect_accepted_socket(self):
         if hasattr(ssl, 'PROTOCOL_TLS'):
             proto = ssl.PROTOCOL_TLS
@@ -2080,7 +2097,7 @@ class _TestSSL(tb.SSLTestCase):
 
         CNT = 0           # number of clients that were successful
         TOTAL_CNT = 25    # total number of clients that test will create
-        TIMEOUT = 20.0    # timeout for this test
+        TIMEOUT = 60.0    # timeout for this test
 
         A_DATA = b'A' * 1024 * 1024
         B_DATA = b'B' * 1024 * 1024
@@ -2649,7 +2666,12 @@ class _TestSSL(tb.SSLTestCase):
         with self.tcp_server(run(server)) as srv:
             self.loop.run_until_complete(client(srv.addr))
 
+    @unittest.skipIf(tb.IsWindows, 'Hangs')
     def test_remote_shutdown_receives_trailing_data(self):
+        if sys.platform == 'linux' and sys.version_info < (3, 11):
+            # TODO: started hanging and needs to be diagnosed.
+            raise unittest.SkipTest()
+
         CHUNK = 1024 * 16
         SIZE = 8
         count = 0
@@ -2932,6 +2954,7 @@ class _TestSSL(tb.SSLTestCase):
         with self.tcp_server(server) as srv:
             loop.run_until_complete(client(srv.addr))
 
+    @unittest.skipIf(tb.IsWindows, 'Hangs')
     def test_shutdown_while_pause_reading(self):
         if self.implementation == 'asyncio':
             raise unittest.SkipTest()

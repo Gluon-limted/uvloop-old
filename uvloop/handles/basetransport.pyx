@@ -206,6 +206,12 @@ cdef class UVBaseTransport(UVSocketHandle):
             raise RuntimeError('invalid _init_protocol call')
         self._schedule_call_connection_made()
 
+    cdef inline _init_protocol_fd(self, int fd):
+        self._loop._transports[fd] = self
+        if self._protocol is None:
+            raise RuntimeError('invalid _init_protocol_fd call')
+        self._schedule_call_connection_made()
+
     cdef inline _add_extra_info(self, str name, object obj):
         if self._extra_info is None:
             self._extra_info = {}

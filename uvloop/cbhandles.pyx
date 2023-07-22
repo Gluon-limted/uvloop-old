@@ -207,7 +207,7 @@ cdef class TimerHandle:
         if UVLOOP_DEBUG:
             self.loop._debug_cb_timer_handles_count -= 1
         if self.timer is not None:
-            raise RuntimeError('active TimerHandle is deallocating')
+            raise RuntimeError('active TimerHandle is deallacating')
 
     cdef _cancel(self):
         if self._cancelled == 1:

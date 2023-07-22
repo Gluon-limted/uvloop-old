@@ -8,6 +8,7 @@ import contextlib
 import gc
 import logging
 import os
+from platform import uname
 import pprint
 import re
 import select
@@ -21,10 +22,11 @@ import unittest
 import uvloop
 
 LineEnding = b'\r\n' if sys.platform in ('win32', 'cli') else b'\n'
+IsWindows = sys.platform in ('win32', 'cli')
+IsWsl = 'microsoft' in uname().release.lower()
 
 
 class MockPattern(str):
-
     def __eq__(self, other):
         return bool(re.search(str(self), other, re.S))
 
@@ -101,9 +103,7 @@ class BaseTestCase(unittest.TestCase, metaclass=BaseTestCaseMeta):
         self.__unhandled_exceptions = []
 
     def tearDown(self):
-        if self.loop.is_running():
-            task = self.loop.create_task(asyncio.sleep(0.1))
-            self.loop.run_until_complete(task)
+        self.loop.close()
 
         if self.__unhandled_exceptions:
             print('Unexpected calls to loop.call_exception_handler():')
@@ -320,19 +320,17 @@ class AIOTestCase(BaseTestCase):
     def setUp(self):
         super().setUp()
 
-        if getattr(asyncio, 'SafeChildWatcher', None):
+        # No watchers on Windows
+        if hasattr(asyncio, 'SafeChildWatcher'):
             watcher = asyncio.SafeChildWatcher()
             watcher.attach_loop(self.loop)
             asyncio.set_child_watcher(watcher)
 
     def tearDown(self):
-        try:
-            if not self.loop.is_closed():
-                self.loop.run_until_complete(asyncio.sleep(0.1))
+        if not self.loop.is_closed():
+            self.loop.run_until_complete(asyncio.sleep(0.1))
+        if hasattr(asyncio, 'SafeChildWatcher'):
             asyncio.set_child_watcher(None)
-        except NotImplementedError:
-            pass
-
         super().tearDown()
 
     def new_loop(self):

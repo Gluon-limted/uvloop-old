@@ -42,6 +42,9 @@ cdef class UVBaseTransport(UVSocketHandle):
     cdef _clear_protocol(self)
 
     cdef inline _init_protocol(self)
+
+    cdef inline _init_protocol_fd(self, int fd)
+
     cdef inline _add_extra_info(self, str name, object obj)
 
     # === overloads ===

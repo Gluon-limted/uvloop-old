@@ -367,6 +367,8 @@ cdef void __close_all_handles(Loop loop):
     uv.uv_walk(loop.uvloop,
                __uv_walk_close_all_handles_cb,
                <void*>loop)  # void
+    #print('__close_all_handles.CloseIOCP({})'.format(os.getpid()))
+    system.CloseIOCP(<void *> loop.uvloop)
 
 
 cdef void __uv_walk_close_all_handles_cb(
