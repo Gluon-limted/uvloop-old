@@ -74,7 +74,6 @@ cdef class UVProcess(UVHandle):
 
         errpipe_data = None
         if system.PLATFORM_IS_WINDOWS :
-            system.DbgBreak()
             py_gil_state = PyGILState_Ensure()
             err = uv.uv_spawn(loop.uvloop,
                           <uv.uv_process_t *> self._handle,
@@ -584,7 +583,7 @@ cdef class UVProcessTransport(UVProcess):
                     #io[2] = self._stderr #TODO: check ._handle
                     self.options.stdio[2].data.stream = <uv.uv_stream_t*>self._stderr._handle
                 elif _stderr == subprocess_STDOUT:
-                    if &self.options.stdio[1] == NULL:
+                    if self.options.stdio[1].data.stream == NULL:
                         # shouldn't ever happen
                         raise RuntimeError('cannot apply subprocess.STDOUT')
 

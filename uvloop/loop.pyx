@@ -446,13 +446,11 @@ cdef class Loop:
             self.handler_async.send()
 
     cdef _on_wake(self):
-        print('_on_wake()')
         if ((self._ready_len > 0 or self._stopping) and
                 not self.handler_idle.running):
             self.handler_idle.start()
 
     cdef _on_idle(self):
-        #print('_on_idle()')
         cdef:
             int i, ntodo
             object popleft = self._ready.popleft
@@ -623,8 +621,7 @@ cdef class Loop:
             raise RuntimeError(
                 f"new callbacks were queued during loop closing: "
                 f"{self._ready}")
-        #TODO remove handles
-        print('uv.uv_loop_close')
+
         err = uv.uv_loop_close(self.uvloop)
         if err < 0:
             raise convert_error(err)
@@ -1132,7 +1129,7 @@ cdef class Loop:
             int err = 0
             int reuseport_flag = 1
 
-        if hasattr(socket, 'SO_REUSEPORT'):
+        if not system.PLATFORM_IS_WINDOWS:
             err = system.setsockopt(
                 fd,
                 uv.SOL_SOCKET,
@@ -1786,7 +1783,7 @@ cdef class Loop:
 
                         if reuse_address:
                             sock.setsockopt(uv.SOL_SOCKET, uv.SO_REUSEADDR, 1)
-                        if hasattr(sock, 'SO_REUSEPORT') and reuse_port:
+                        if reuse_port:
                             sock.setsockopt(uv.SOL_SOCKET, uv.SO_REUSEPORT, 1)
                         # Disable IPv4/IPv6 dual stack support (enabled by
                         # default on Linux) which makes a single socket
@@ -2762,7 +2759,7 @@ cdef class Loop:
                                executable=None,
                                pass_fds=(),
                                # For tests only! Do not use in your code. Ever.
-                               __uvloop_sleep_after_fork=False):
+                               uvloop_sleep_after_fork=False):
 
         # TODO: Implement close_fds (might not be very important in
         # Python 3.5, since all FDs aren't inheritable by default.)
@@ -2782,7 +2779,7 @@ cdef class Loop:
         if executable is not None:
             args[0] = executable
 
-        if __uvloop_sleep_after_fork:
+        if uvloop_sleep_after_fork:
             debug_flags |= __PROCESS_DEBUG_SLEEP_AFTER_FORK
 
         waiter = self._new_future()
@@ -2908,7 +2905,7 @@ cdef class Loop:
             raise TypeError(
                 "coroutines cannot be used with add_signal_handler()")
 
-        if hasattr(signal, 'SIGCHLD') and sig == uv.SIGCHLD:
+        if sig == uv.SIGCHLD:
             if (hasattr(callback, '__self__') and
                     isinstance(callback.__self__, aio_AbstractChildWatcher)):
 
@@ -3101,7 +3098,7 @@ cdef class Loop:
                     udp = UDPTransport.__new__(UDPTransport)
                     udp._init(self, family)
 
-                if has_SO_REUSEPORT and reuse_port:
+                if reuse_port:
                     self._sock_set_reuseport(udp._fileno())
 
             else:
@@ -3110,7 +3107,7 @@ cdef class Loop:
                     try:
                         udp = UDPTransport.__new__(UDPTransport)
                         udp._init(self, lai.ai_family)
-                        if has_SO_REUSEPORT and reuse_port:
+                        if reuse_port:
                             self._sock_set_reuseport(udp._fileno())
                         udp._bind(lai.ai_addr)
                     except (KeyboardInterrupt, SystemExit):
